@@ -1,0 +1,877 @@
+\begin{verbatim}
+#!/usr/bin/env python
+# coding: utf-8
+
+# Processing
+# ---
+# 
+# This notebook prepares the data for modeling. Null values in numeric data are imputed. Lists of car features are cleaned and consolidated (for example, colors `black` and `Black` are considered the same). Strings and lists of string features are split, and the most common are made into dummies.
+
+# In[1]:
+
+
+#import libraries
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+# import sklearn
+
+#display options
+pd.options.display.max_columns = 40
+get_ipython().run_line_magic('matplotlib', 'inline')
+plt.style.use('dark_background')
+
+
+# In[2]:
+
+
+#import data
+data_path = '../data/'
+train_data_filename = 'Training_DataSet.csv'
+test_data_filename = 'Test_Dataset.csv'
+
+traindf = pd.read_csv(data_path + train_data_filename)
+
+
+#copy training data to a new dataframe to use for modeling
+traindf_proc = traindf.copy()
+traindf_proc.info()
+
+
+# ---
+# # Processing feature by feature
+
+# # ListingID
+# 
+# drop it.
+
+# In[3]:
+
+
+#keep track to drop later.
+columns_to_drop = ['ListingID']
+
+
+# 
+# 
+# ## SellerCity
+# Although SellerCity did not appear to influence the average dealer listing price, it is possible that patterns with SellerCity could be paired with other features to derive the value. This will not be effective in a linear regression model but could be grabbed onto in a decision tree / NN / etc.
+
+# In[4]:
+
+
+#make dummies for Seller Cities with the most sales in the training set.
+#perhaps a bit arbitrary, but let's cut it off at cities above 30 sales.
+#that's the first 20 common cities.
+cities = traindf['SellerCity'].value_counts(ascending= False)[:20]
+cities = cities.index
+cities
+
+
+# In[5]:
+
+
+# takes a dataframe, a column to expand upon, and a list of values for that column to make dummies.
+# any value in the column that is not in the dummy_list will be ignored
+
+#the purpose of this is to make the same ordered columns in the training set as in any test set. Otherwise,
+#the dummy columns may notinclude the same cities, if there is a different frequency distribution,
+#or if a certain city isn't represented.
+def make_specific_dummies(df, column, dummy_list):
+#make a copy so we don't change the original
+df2 = df.copy()
+#remove any entries in column that aren't in the dummy list
+for dummy_value in dummy_list:
+df2[column + '_' + str(dummy_value)] = df2[column].apply(lambda entry: 1 if entry == dummy_value else 0)
+return df2.drop(columns = column)
+
+
+
+# In[6]:
+
+
+traindf = make_specific_dummies(traindf, 'SellerCity', cities)
+traindf.head()
+
+
+# # SellerListSrc
+# 
+# Only two are nulls --- this will leave those as the only 0 for dummies. (no dropfirst)
+# Again, `pd.get_dummies` could be a problem if there are a different order. Make dummy columns manually.
+
+# In[7]:
+
+
+sources = traindf['SellerListSrc'].dropna().unique()
+sources
+
+
+# In[8]:
+
+
+traindf = make_specific_dummies(traindf, 'SellerListSrc', sources)
+
+
+# ## SellerName
+# Treat this like cities, with the most popular names marked. Again, arbitrarily for now, just picking the top 20 sellers.
+# Some sellers might be tied with low prices for certain models.
+
+# In[9]:
+
+
+#not taking unique because there are so many. order by value count first, then take the first collection
+sellers = traindf['SellerName'].value_counts(ascending = False)[:20]
+sellers = sellers.index
+sellers
+
+
+# In[10]:
+
+
+traindf = make_specific_dummies(traindf, 'SellerName', sellers)
+
+
+# ## SellerState
+# All 50 states are represented. The limit of US states means that we can drop one. Let's make it HI just because it has the fewest sales in this training set.
+
+# In[11]:
+
+
+states = traindf['SellerState'].value_counts(ascending = False).index[:-1]
+states
+
+
+# In[12]:
+
+
+traindf = make_specific_dummies(traindf,'SellerState', states)
+
+
+# # SellerZip, VehBodystyle
+# drop.
+
+# In[13]:
+
+
+columns_to_drop.append('SellerZip')
+columns_to_drop.append('VehBodystyle')
+
+
+# # VehColorExt
+# 
+# colors to consolidate:
+#    
+#    - gray, platinum, silver, steel, granite, billet, billiet, Gy, sil, rhino
+#    - black, Midnight Sky, Shadow, charcoal
+#    - white, ivory
+#    - blue
+#    - brown, brownstone, mocha
+#    - beige, beigh, cashmere, bronze, tan
+#    - gold
+#    - purple, amethyst, velvet
+#    - deep red, dark red, deep cherry red, burgundy, sangria, deep auburn, maroon, 
+#    - red, red horizon
+#    - (black forest) green
+#    - pink
+#    
+# textures / coats:
+# 
+#     - metallic, me
+#     - pearl, pearlcoat, pearl-coat
+#     - crystal
+#     - clear, clearcoat
+#     - 3-coat, tricoat, tri-coat
+#     - tintcoat
+#     
+# nonvalues:
+# 
+#     - nan
+#     - unspecified
+#     - Not Specified
+
+# In[14]:
+
+
+colors = ['silver', 'black','white', 'blue', 'brown', 'tan', 'gold', 'purple', 'deep red', 'red', 'green', 'pink']
+
+textures = ['metallic', 'pearl', 'crystal', 'diamond', 'clearcoat', 'tintcoat', 'tricoat']
+
+silvers = ['gray', 'platinum', 'silver', 'steel', 'granite', 'billet', 'billiet', 'Gy', 'sil', 'rhino']
+blacks = ['black', 'midnight','shadow','charcoal']
+whites = ['white','ivory']
+browns = ['brown','brownstone','mocha']
+tans = ['beige','beigh','cashmere','brown','tan']
+purples = ['purple','amethyst','velvet']
+deepreds = ['deep red','dark red','deep cherry red','burgundy','sangria','deep auburn','maroon']
+
+
+# In[15]:
+
+
+#fill missing ext color values with blank string
+traindf['VehColorExt'].fillna('', inplace = True)
+
+
+# In[16]:
+
+
+#create new dummy columns for basic colors. some will overlap (red, deep red, black forest green), but will largely be separated
+color_synonyms = zip(colors, [silvers, blacks, whites, ['blue'], browns, tans, ['gold'], purples, deepreds, ['red'],['green'], ['pink']])
+color_synonyms = list(color_synonyms)
+for color in color_synonyms:
+this_color = color[0]
+these_synonyms = color[1]
+traindf['ext_' + this_color] = 0
+for synonym in these_synonyms:
+traindf['ext_' + this_color] = traindf[['VehColorExt','ext_' + this_color]].apply(lambda entry: 1 if synonym in entry['VehColorExt'].lower() or entry['ext_' + this_color] else 0, axis = 1)
+
+
+# In[17]:
+
+
+#create dummy columns for textures
+texture_synonyms = zip(textures,
+[
+['metal', 'me'],
+['pearl'],
+['crystal'],
+['diamond'],
+['clear'],
+['tint'],
+['3-coat', 'tricoat']
+])
+texture_synonyms = list(texture_synonyms)
+for texture in texture_synonyms:
+this_texture = texture[0]
+these_synonyms = texture[1]
+traindf['ext_' + this_texture] = 0
+for synonym in these_synonyms:
+#make the dummy value 1 if the synonym is in the description or if it's already 1
+traindf['ext_' + this_texture] = traindf[['VehColorExt', 'ext_' + this_texture]].apply(lambda entry: 1 if synonym in entry['VehColorExt'].lower() or entry['ext_' + this_texture] else 0 , axis = 1)
+
+
+# In[18]:
+
+
+columns_to_drop.append('VehColorExt')
+
+
+# # VehColorInt
+# 
+# Do the same for interior colors.
+# 
+# colors:
+# 
+#     - white
+#     - beige, cream, cirrus
+#     - black, carbon, graphite, ebony
+#     - gray, pewter, aluminum, sterling
+#     - tan
+#     - ruby red
+#     - sugar maple
+#     - bronze
+#     - blue, indigo, plum
+#     - brown, sepia
+#     - red
+#     - jet
+#     
+#     
+#     
+# style:
+# 
+#     - sport
+#     - accent/ accents
+#     - mini-perf, mini-perfo
+# 
+# material:
+# 
+#     - leather
+#     - suede
+#     - titanium
+#     - cloth
+#     - sapelle, sapele
+#     - aluminum
+
+# In[19]:
+
+
+traindf['VehColorInt'].fillna('', inplace = True)
+
+
+# In[20]:
+
+
+int_colors = ['beige',
+'black',
+'jet',
+'gray',
+'red',
+'maple',
+'blue',
+'brown',
+]
+
+styles = ['sport',
+'accent',
+'perf']
+
+materials = ['leather',
+'suede',
+'titanium',
+'cloth',
+'sapele',
+'aluminum']
+
+
+# In[21]:
+
+
+#create dummy columns for interior colors 
+int_color_synonyms = zip(int_colors,
+[
+['beige','cream','cirrus'],
+['black','carbon','graphite','ebony'],
+['jet'],
+['gray','pewter','aluminum','sterling','steel'],
+['red'],
+['maple'],
+['blue','indigo','plum'],
+['brown','sepia']
+])
+int_color_synonyms = list(int_color_synonyms)
+for color in int_color_synonyms:
+this_color = color[0]
+these_synonyms = color[1]
+#create a column of zeros for this feature
+traindf['int_' + this_color] = 0
+#fill the new column if the scanned column has any of the synonyms
+for synonym in these_synonyms:
+#make the dummy value 1 if the synonym is in the description or if it's already 1
+traindf['int_' + this_color] = traindf[['VehColorInt', 'int_' + this_color]].apply(lambda entry: 1 if synonym in entry['VehColorInt'].lower() or entry['int_' + this_color] else 0 , axis = 1)
+
+
+
+
+# In[22]:
+
+
+
+
+# scans through df[column] for anything in a synonym list, makes new columns with synonym headers.
+# synonyms looks like 
+# [ 
+#   [ value1, [synonym1, synonym2...],
+#   [ value2, [synonym1, synonym2...],
+#   ...
+# ]
+def make_synonym_dummies(df, column, new_column_prefix, synonyms):
+#not memory efficient, but safe.
+df2 = df.copy()
+for value in synonyms:
+this_value = value[0]
+these_synonyms = value[1]
+#create a column of zeros for this feature
+df2[new_column_prefix + '_' + this_value] = 0
+#fill the new column if the scanned column has any of the synonyms
+for synonym in these_synonyms:
+#make the dummy value 1 if the synonym is in the description or if it's already 1
+df2[new_column_prefix + '_' + this_value] = df2[[column, new_column_prefix + '_' + this_value]].apply(lambda entry: 1 if synonym in entry[column].lower() or entry[new_column_prefix + '_' + this_value] else 0 , axis = 1)
+return df2
+
+def make_inclusive_dummies(df, column, new_column_prefix, values):
+df2 = df.copy()
+for value in values:
+df2[new_column_prefix + '_' + value] = df2[column].apply(lambda entry: value in entry.lower())    
+return df2
+
+
+
+# In[23]:
+
+
+#style dummies
+traindf = make_inclusive_dummies(traindf, 'VehColorInt', 'int', styles)
+
+
+# In[24]:
+
+
+#internal material dummies
+traindf = make_inclusive_dummies(traindf, 'VehColorInt', 'int', materials)
+traindf.columns[-9:]
+
+
+# In[25]:
+
+
+columns_to_drop.append('VehColorInt')
+
+
+# ---
+# # VehDriveTrain
+# 
+# Split these into two, 4x4/AWD and FWD/2WD. There are fine distinctions in cars in reality, but this data is mixed.
+# 
+# - AWD
+#     - 4WD/AWD
+#     - AllWheelDrive
+#     - ALL WHEEL
+#     - All-wheel drive
+#     - AWD or 4x4
+#     - 4x4/4WD
+#     - 4x4
+#     - All Wheel Drive
+#     - ALL-WHEEL
+#     - four wheel
+#     - 4WD
+# - 2WD
+#     - front-wheel Drive
+#     - 2WD
+#     - FWD
+
+# In[26]:
+
+
+traindf['VehDriveTrain'].fillna('', inplace = True)
+
+
+# In[27]:
+
+
+drivetrains = ['awd', 'fwd']
+
+awds = [
+'4wd',
+'awd',
+'4x4',
+'all-wheel',
+'all wheel',
+'four wheel',
+'four-wheel'
+]
+
+fwds = [
+'fwd',
+'front-wheel',
+'front wheel',
+'2wd'
+]
+
+drivetrain_synonyms = zip(drivetrains,
+[
+awds,
+fwds
+])
+drivetrain_synonyms = list(drivetrain_synonyms)
+
+
+# In[28]:
+
+
+drivetrain_synonyms
+
+
+# In[29]:
+
+
+#assign drivetrain dummies
+traindf = make_synonym_dummies(traindf, 'VehDriveTrain', 'drivetrain', drivetrain_synonyms)
+
+
+# In[30]:
+
+
+columns_to_drop.append('VehDriveTrain')
+
+
+# # VehEngine
+# A lot of these engine values are included in `VehFeats`. Instead of regexing a bunch of engine values, I'll grab them from the feats.
+
+# In[31]:
+
+
+columns_to_drop.append('VehEngine')
+
+
+# # VehFeats
+
+# In[32]:
+
+
+#turn these objects into lists 
+#
+traindf['VehFeats'] = traindf['VehFeats'].dropna().apply(lambda entry: eval(entry))
+
+
+# In[33]:
+
+
+# create a flat list of all feats
+feat_list = [
+feat for feats in traindf['VehFeats'].dropna() for feat in feats
+]
+#make that list a series to easily count values
+featvcs = pd.Series(feat_list).value_counts(ascending = False)
+#look at those value counts
+featvcs.head()
+
+
+# In[34]:
+
+
+#grab the top feats to make a dummy list.
+feats = featvcs.index[:80]
+
+
+# In[35]:
+
+
+traindf['VehFeats']
+
+
+# In[36]:
+
+
+for feat in feats:
+traindf['feat_' + feat] = traindf['VehFeats'].dropna().apply(lambda featlist: feat in featlist)
+
+
+# In[37]:
+
+
+columns_to_drop.append('VehFeats')
+
+
+# # VehFuel
+
+# In[38]:
+
+
+fuels = traindf['VehFuel'].unique()[:3]
+fuels
+
+
+# In[39]:
+
+
+traindf = make_specific_dummies(traindf, 'VehFuel', fuels )
+
+
+# # VehHistory
+
+# In[40]:
+
+
+traindf['VehHistory']
+
+
+# In[41]:
+
+
+#turn vehhistory into lists of strings
+traindf['VehHistory'].fillna('', inplace = True)
+traindf['VehHistory'] = traindf['VehHistory'].apply(lambda this_history: this_history.split(', '))
+
+
+# In[42]:
+
+
+# create a flat list of all hist
+hist_list = [
+hist for hists in traindf['VehHistory'].dropna() for hist in hists
+]
+#make that list a series to easily count values
+histvcs = pd.Series(hist_list).value_counts(ascending = False)
+#look at those value counts
+histvcs
+
+
+# In[43]:
+
+
+#make hist dummies
+hists = histvcs.index
+for hist in hists:
+traindf['hist_' + hist] = traindf['VehHistory'].dropna().apply(lambda histlist: hist in histlist)
+
+
+# In[44]:
+
+
+columns_to_drop.append('VehHistory')
+
+
+# # VehListdays
+# 
+# Good to leave alone besides nas. Fill those with median.
+
+# In[45]:
+
+
+traindf['VehListdays'].fillna(traindf['VehListdays'].median(), inplace = True)
+
+
+# # VehMake
+# 
+# only two makes.
+
+# In[46]:
+
+
+traindf = make_specific_dummies(traindf, 'VehMake', ['Jeep'])
+
+
+# # VehMileage
+# 
+# numeric. Fine to leave alone. Two NaNs fill with median.
+
+# In[47]:
+
+
+traindf['VehMileage'].fillna(traindf['VehMileage'].median(), inplace = True)
+
+
+# # VehModel
+# 
+# These are 1:1 with Make since there are only two models and two makes.
+
+# In[48]:
+
+
+columns_to_drop.append('VehModel')
+
+
+# # VehPriceLabel
+# 
+# I'm guessing missing values are "bad". These will be the missing dummy.
+
+# In[49]:
+
+
+price_labels = traindf['VehPriceLabel'].unique()[:3]
+price_labels
+
+
+# In[50]:
+
+
+traindf = make_specific_dummies(traindf,'VehPriceLabel', price_labels)
+
+
+# # VehSellerNotes
+# 
+# I'd love to go through this to mark off important notes. But that will take time that I unfortunately don't have.
+
+# In[51]:
+
+
+
+columns_to_drop.append('VehSellerNotes')
+
+
+# # VehType
+# all the same.
+
+# In[52]:
+
+
+columns_to_drop.append('VehType')
+
+
+# # VehTransmission
+# 
+# These are overwhelmingly 8-speed automatic. I don't think I will be able to extract much use out of this.
+
+# In[53]:
+
+
+columns_to_drop.append('VehTransmission')
+
+
+# # VehYear
+# 
+# make dummies from these. A certain year may be favorable.
+
+# In[54]:
+
+
+years = traindf['VehYear'].unique()
+years
+
+
+# In[55]:
+
+
+traindf = make_specific_dummies(traindf, 'VehYear', years)
+
+
+# # VehTrim
+# 
+# the classification target.
+
+# In[56]:
+
+
+#save as a separate series
+trim_data = traindf['Vehicle_Trim']
+trim_data.to_csv('../data/train_trim_data.csv')
+
+#drop
+columns_to_drop.append('Vehicle_Trim')
+
+
+# # finish up and save
+
+# In[57]:
+
+
+#drop columns
+traindf.drop(columns = columns_to_drop, inplace = True)
+
+
+# In[58]:
+
+
+#turn all columns into floats for saving
+traindf = traindf.astype(float)
+traindf.info()
+
+
+# In[59]:
+
+
+#many rows are missing dealer list price, unfortunately. Drop these for now --- that's our target.
+traindf = traindf.dropna()
+
+
+# In[60]:
+
+
+#save processed training data
+processed_train_path = '../data/train_processed.csv'
+traindf.to_csv(processed_train_path, index=None)
+
+
+# # Repeat entire process for testing data.
+# 
+# Ideally a lot of this would be made with a single python script and some nice custom functions. For the sake of this challenge, I am copy-pasting.
+
+# In[61]:
+
+
+testdf = pd.read_csv(data_path + test_data_filename)
+testdf.info()
+
+
+# In[62]:
+
+
+testdf = make_specific_dummies(testdf, 'SellerCity', cities)
+testdf = make_specific_dummies(testdf, 'SellerListSrc', sources)
+testdf = make_specific_dummies(testdf, 'SellerName', sellers)
+testdf = make_specific_dummies(testdf,'SellerState', states)
+testdf['VehColorExt'].fillna('', inplace = True)
+for color in color_synonyms:
+this_color = color[0]
+these_synonyms = color[1]
+testdf['ext_' + this_color] = 0
+for synonym in these_synonyms:
+testdf['ext_' + this_color] = testdf[['VehColorExt','ext_' + this_color]].apply(lambda entry: 1 if synonym in entry['VehColorExt'].lower() or entry['ext_' + this_color] else 0, axis = 1)
+for texture in texture_synonyms:
+this_texture = texture[0]
+these_synonyms = texture[1]
+testdf['ext_' + this_texture] = 0
+for synonym in these_synonyms:
+#make the dummy value 1 if the synonym is in the description or if it's already 1
+testdf['ext_' + this_texture] = testdf[['VehColorExt', 'ext_' + this_texture]].apply(lambda entry: 1 if synonym in entry['VehColorExt'].lower() or entry['ext_' + this_texture] else 0 , axis = 1)
+testdf['VehColorInt'].fillna('', inplace = True)
+for color in int_color_synonyms:
+this_color = color[0]
+these_synonyms = color[1]
+#create a column of zeros for this feature
+testdf['int_' + this_color] = 0
+#fill the new column if the scanned column has any of the synonyms
+for synonym in these_synonyms:
+#make the dummy value 1 if the synonym is in the description or if it's already 1
+testdf['int_' + this_color] = testdf[['VehColorInt', 'int_' + this_color]].apply(lambda entry: 1 if synonym in entry['VehColorInt'].lower() or entry['int_' + this_color] else 0 , axis = 1)
+testdf = make_inclusive_dummies(testdf, 'VehColorInt', 'int', styles)
+testdf = make_inclusive_dummies(testdf, 'VehColorInt', 'int', materials)
+testdf['VehDriveTrain'].fillna('', inplace = True)
+testdf = make_synonym_dummies(testdf, 'VehDriveTrain', 'drivetrain', drivetrain_synonyms)
+testdf['VehFeats'] = testdf['VehFeats'].dropna().apply(lambda entry: eval(entry))
+for feat in feats:
+testdf['feat_' + feat] = 0
+testdf['feat_' + feat] = testdf['VehFeats'].dropna().apply(lambda featlist: feat in featlist)
+testdf = make_specific_dummies(testdf, 'VehFuel', fuels )
+
+testdf['VehHistory'].fillna('', inplace = True)
+testdf['VehHistory'] = testdf['VehHistory'].apply(lambda this_history: this_history.split(', '))
+for hist in hists:
+testdf['hist_' + hist] = testdf['VehHistory'].dropna().apply(lambda histlist: hist in histlist)
+testdf['VehListdays'].fillna(testdf['VehListdays'].median(), inplace = True)
+testdf = make_specific_dummies(testdf, 'VehMake', ['Jeep'])
+testdf['VehMileage'].fillna(testdf['VehMileage'].median(), inplace = True)
+testdf = make_specific_dummies(testdf,'VehPriceLabel', price_labels)
+testdf = make_specific_dummies(testdf, 'VehYear', years)
+
+
+# In[63]:
+
+
+testdf['VehFeats']
+
+
+# In[64]:
+
+
+# drop columns.
+# it looks like vehicle trim isn't in the test data anyway.
+columns_to_drop.remove('Vehicle_Trim')
+
+
+# In[65]:
+
+
+
+testdf.drop(columns = columns_to_drop, inplace = True)
+
+
+# In[66]:
+
+
+traindf.columns
+
+
+# In[67]:
+
+
+#The testing data has one fewer column --- that's the dealer price in training data!
+testdf.columns
+
+
+# In[68]:
+
+
+# the feats introduced a lot of nulls --- fill these with 0
+testdf.fillna(0., inplace = True)
+
+
+# In[69]:
+
+
+#turn bools into floats
+testdf = testdf.astype(float)
+
+#save the test data.
+processed_test_path = '../data/test_processed.csv'
+testdf.to_csv(processed_test_path, index=None)
+
+
+# In[70]:
+
+
+#from here, go to notebook 3 to train models.
+
+
+\end{verbatim}

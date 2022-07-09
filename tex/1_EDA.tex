@@ -1,0 +1,782 @@
+\begin{verbatim}
+#!/usr/bin/env python
+# coding: utf-8
+
+# EDA
+# ---
+# 
+# This notebook passes through each features in the used car data.
+# 
+
+# In[457]:
+
+
+#import libraries
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+
+#display options
+pd.options.display.max_columns = 40
+get_ipython().run_line_magic('matplotlib', 'inline')
+plt.style.use('dark_background')
+
+
+# In[458]:
+
+
+#import data
+data_path = '../data/'
+train_data_filename = 'Training_DataSet.csv'
+test_data_filename = 'Test_Dataset.csv'
+
+traindf = pd.read_csv(data_path + train_data_filename)
+traindf.info()
+
+
+# In[459]:
+
+
+#look at top of the list
+traindf.head()
+
+
+# In[18]:
+
+
+#look at basic statistics of numeric data
+traindf.describe()
+
+
+# ---
+# # ListingID
+# ---
+
+# In[26]:
+
+
+# 'ListingID' monotonically increases, approxmately linearly, with index.
+testdf.ListingID.plot()
+
+
+# In[21]:
+
+
+#Increase of subsequent IDs is always positive but variable.
+testdf.ListingID.diff().plot()
+
+
+# In[24]:
+
+
+#The distribution of the increase is exponentially decaying with larger skips.
+testdf.ListingID.diff().hist(bins = 30, log = True)
+
+
+# # SellerCity
+# These all appear to be USA cities. Top represented cities largely not from the west coast?
+
+# In[408]:
+
+
+#plot number of instances of sales from the most represented cities
+scvaluecounts = traindf.SellerCity.value_counts();
+plot_limit = 20
+plt.barh(scvaluecounts.index[:plot_limit], scvaluecounts[:plot_limit]);
+
+
+# In[400]:
+
+
+#how many cities are represented?
+len(traindf.SellerCity.unique())
+
+
+# In[409]:
+
+
+#how many cities have more than one sale?
+scvaluecounts[scvaluecounts > 1]
+
+
+# In[410]:
+
+
+#how many have more than 2 sales?
+scvaluecounts[scvaluecounts > 2]
+
+
+# In[424]:
+
+
+#look at value counts of value counts.
+scvcvc = scvaluecounts.value_counts()
+
+#plot how many cities (y) have x sales
+fig, ax = plt.subplots(figsize = (12,6))
+ax.set_yscale('log')
+plt.scatter(scvcvc.index, scvcvc)
+
+
+# In[425]:
+
+
+# plot how many sales come from a city with X sales (product of representation above with number of sales)
+# the characteristic log shape for higher X comes from the values with only one city with that number.
+fig, ax = plt.subplots(figsize = (12,6))
+ax.set_yscale('log')
+plt.scatter(scvcvc.index, scvcvc*scvcvc.index)
+
+
+# In[431]:
+
+
+#the above might be a bit deceptive. look at a histogram to account for the different density of numbers.
+
+#number of cit
+fig, ax = plt.subplots(figsize = (12,6))
+plt.hist(scvcvc*scvcvc.index, bins = 50);
+
+
+# In[443]:
+
+
+# is there anything special about being sold from a high-sales city?
+hi_sale_cutoff = 10
+hi_sales_cities = traindf['SellerCity'].value_counts()[traindf['SellerCity'].value_counts() > hi_sale_cutoff].index
+
+
+# In[444]:
+
+
+hi_sales_cities
+
+
+# In[448]:
+
+
+#get sales statistics only from high-sales (>10 records) cities
+traindf[traindf['SellerCity'].apply(lambda city: city in hi_sales_cities.to_list())].describe()
+
+
+# In[447]:
+
+
+#compare to statistics from low-sales cities.
+traindf[traindf['SellerCity'].apply(lambda city: city not in hi_sales_cities.to_list())].describe()
+
+
+# In[449]:
+
+
+#with this (admittedly arbitrary) cutoff of cities with >10 sales in the set, cutting the records in about half, the mean dealer list price
+# and std of sale price is about the same. 
+
+
+# In[451]:
+
+
+#look at mean dealer sales for each city. look at high sales cities only since the mean isn't too meaningful for lower sales count ones.
+unique_cities = traindf['SellerCity'].unique()
+city_means = []
+for city in unique_cities:
+city_means.append(
+traindf.loc[traindf['SellerCity'] == city, 'Dealer_Listing_Price'].mean()
+)
+print(len(city_means), 'different city means')
+
+
+# In[455]:
+
+
+#plot city sale USD mean with number of sales
+plt.scatter(traindf['SellerCity'].value_counts(), city_means)
+plt.xlabel('Number of sale records in city')
+plt.ylabel('city Dealer listing price mean')
+
+
+# In[456]:
+
+
+#it looks like number of sales and the sale mean aren't related. Although higher sale count cities appear to be more
+#in the middle, this is likely an artifact of averaging more sales.
+
+
+# ---
+# # SellerIsPriv
+# 
+# If private seller. (Is a dealership a non-private seller?)
+
+# In[62]:
+
+
+#Only 14 of the listings are listed as private. This may cause overfitting.
+priv
+
+
+# In[70]:
+
+
+# What are typical prices of these?
+privateprices = traindf.loc[traindf['SellerIsPriv'] == 1, 'Dealer_Listing_Price' ]
+privateprices.describe()
+
+
+# In[94]:
+
+
+privateprices.hist(bins = 8)
+plt.axvline(privateprices.mean(), color = 'red')
+plt.axvline(privateprices.describe()['50%'], color = 'green')
+
+
+# In[95]:
+
+
+#Compare this to the overall prices for the set later.
+
+
+# # SellerListSrc
+
+# In[98]:
+
+
+#only a few different "seller listing source identifiers".
+traindf.SellerListSrc.value_counts()
+
+
+# In[99]:
+
+
+#two listings are NaN
+# These also have SellerZip, VehSellerNotes, and VehTransmission as NaN.
+traindf.loc[traindf['SellerListSrc'].isna()]
+
+
+# ---
+# # SellerName
+
+# In[104]:
+
+
+#about 60% of the sellers only show once
+len(traindf.SellerName.unique()), len(traindf.SellerName.unique())/len(traindf)
+
+
+# In[130]:
+
+
+#Look at number of sales of instances from each seller type.
+sellernamecounts = traindf.SellerName.value_counts()[:40]
+plt.figure(figsize = (12,12))
+plt.barh(sellernamecounts.index, sellernamecounts, log = True)
+plt.xticks(np.logspace(1,3,3));
+
+
+# ---
+# # SellerRating
+
+# In[131]:
+
+
+traindf.SellerRating.describe()
+
+
+# In[139]:
+
+
+#look at rating distribution
+traindf.SellerRating.hist(bins = 20)
+
+
+# In[143]:
+
+
+#Seller rating with avg sales price isn't directly correlated
+plt.scatter(
+traindf.SellerRating,
+traindf['Dealer_Listing_Price']
+)
+plt.xlabel('seller rating')
+plt.ylabel("sale price")
+
+
+# ---
+# # SellerRevCnt
+
+# In[150]:
+
+
+#look at distribution of review counts. these include repeat-counted values from the same seller.
+traindf.SellerRevCnt.hist(log = True)
+plt.xlabel('review count')
+plt.ylabel('number of sales with this count');
+
+
+# In[155]:
+
+
+#price with review count
+plt.scatter(
+traindf['SellerRevCnt'],
+traindf['Dealer_Listing_Price']
+)
+plt.xlabel('Number of reviews')
+plt.ylabel('sale price (USD)');
+
+
+# ---
+# # SellerState
+
+# In[176]:
+
+
+## this is redone with state names and regions following
+
+#look at all unique seller states and rates
+# statevcs = traindf['SellerState'].value_counts()
+# plt.figure(figsize = (6,12))
+# plt.barh(statevcs.index, statevcs, log = True)
+
+
+# In[177]:
+
+
+#import region table to look at regional representation
+region_filepath = '../us-census-regions-divisions.csv'
+regions = pd.read_csv(region_filepath)
+regions.set_index('State Code', inplace=True)
+#take a look to see it worked
+regions.head()
+
+
+# In[188]:
+
+
+#join regions onto data to see representation of states and view
+regiondata = traindf.join(regions, on = 'SellerState')[['SellerState', 'State', 'Region', 'Division']]
+statesvcs = regiondata['State'].value_counts()
+plt.figure(figsize=(6,12))
+plt.barh(statesvcs.index, statesvcs, log = True)
+plt.title("State representation (log)");
+plt.grid(b = True, axis ='x')
+
+
+# In[191]:
+
+
+# look at region representations
+regvcs = regiondata['Region'].value_counts()
+plt.figure(figsize = (6,6))
+plt.barh(regvcs.index, regvcs, log = False)
+plt.title('Region representation')
+plt.grid(b = True, axis = 'x')
+
+
+# In[200]:
+
+
+divvcs = regiondata['Division'].value_counts()
+plt.figure(figsize = (6,6))
+plt.barh(divvcs.index, divvcs, log = True)
+plt.title('division representation (log)')
+plt.grid(b = True, axis = 'x')
+plt.xlim(1,3000);
+
+
+# ---
+# # SellerZip
+# 
+# Most of the listings do not have a zip --- this may be influenced by online sales.
+# 
+# Zip is highly related to seller and other location values.
+
+# In[206]:
+
+
+#look at common zips
+traindf['SellerZip'].value_counts().head(20)
+
+
+# In[202]:
+
+
+traindf['SellerName'].value_counts()
+
+
+# ---
+# # VehBodystyle
+# 
+# Every listing is SUV body style. This is a useless column.
+
+# In[211]:
+
+
+traindf['VehBodystyle'].value_counts()
+
+
+# ---
+# # VehCertified
+
+# In[218]:
+
+
+certvcs = traindf['VehCertified'].value_counts()
+plt.bar(['Not Certified', 'Certified'], certvcs)
+plt.title("vehicle certified");
+
+
+# ---
+# # VehColorExt
+# 
+# There are a lot of exterior colors. It will be good to reduce these to subproperties like:
+# 
+# - general color
+# - descriptive words like metallic, clearcoat, crystal, pearlcoat or Pearl Coat/Coat Pearl, tintcoat/tri-coat/tricoat/3-coat, tricoa,
+# - texture words like Cashmere, Velvet, Frost, Pearl, ivory
+# - extra sexy words like diamond, maximum, sangria (?), Stellar, Radiant, Passion, ** night edition **, midnight sky
+#     - find out which extra descriptive words are true descriptors or simply marketing.
+# 
+# It also appears that roof camera information is included in some of these.
+
+# In[237]:
+
+
+def value_count_barplot(series, h = True, title = "plot title", log = False, figsize = (12,6)):
+plt.figure(figsize = figsize)
+this_value_counts = series.value_counts()
+if h:
+plot = plt.barh
+else:
+plot = plt.bar
+plot(this_value_counts.index, this_value_counts, log = log)
+plt.title(title)
+
+
+# In[238]:
+
+
+colorevcs = traindf['VehColorExt'].value_counts()
+value_count_barplot(traindf['VehColorExt'], title = "exterior color representation", log = True, figsize = (6,40))
+
+
+# ---
+# # VehColorInt
+# 
+# Separate these into color and texture as well. Many are overlapping, for instance the repeat 'black' types.
+
+# In[239]:
+
+
+value_count_barplot(traindf['VehColorInt'], title = 'Interior color representation', log = True, figsize = (6,40))
+
+
+# ---
+# # VehDriveTrain
+# 
+# some of these are repeats, such as many different ways of writing All Wheel Drive.
+# Some are overlapping or ambiguous, such as 2WD. Is that FWD or RWD?
+
+# In[240]:
+
+
+value_count_barplot(traindf['VehDriveTrain'], title = 'Drive Train', log = True)
+
+
+# ---
+# # VehEngine
+# 
+# Engine can be split into a few features:
+# 
+# - volume
+# - number of cylinders
+# - horsepower
+# - special (HEMI, supercharged, MDS == Multi displacement, vvt variable valve timing, DI diesel direct, natural aspiration, mpfi multi port, DOHC dual overhead camshaft )
+# 
+# These are tough because most cars may have DOHC, certainly they all have "horsepower", but not every entry reports them.
+
+# In[242]:
+
+
+value_count_barplot(traindf['VehEngine'], title = 'Engine represenation', log = True, figsize = (6,20))
+
+
+# In[ ]:
+
+
+volumes = ['3.0L', '3.6L', '5.7L', '6.2L', '']
+
+
+# ---
+# # VehFeats
+# 
+# Lot of good info here. It appears to be well-written and organized --- information filled automatically rather than written manually like the previous. These should be flattened for value counts.
+
+# In[465]:
+
+
+#turn these objects into lists 
+#
+traindf['VehFeats'] = traindf['VehFeats'].dropna().apply(lambda entry: eval(entry))
+
+
+# In[471]:
+
+
+traindf['VehFeats'].dropna()
+
+
+# In[466]:
+
+
+traindf['VehFeats']
+
+
+# In[467]:
+
+
+# create a flat list of all feats
+feat_list = [
+feat for feats in traindf['VehFeats'].dropna() for feat in feats
+]
+#make that list a series to easily count values
+featvcs = pd.Series(feat_list).value_counts()
+#look at those value counts
+featvcs.head()
+
+
+# In[485]:
+
+
+featvcs.head(80)
+
+
+# In[468]:
+
+
+traindf['VehFeats']
+
+
+# ---
+# # VehFuel
+# 
+# There is an unknown entry that is not used often, this can be mixed with NaN.
+
+# In[297]:
+
+
+traindf.loc[traindf['VehFuel'].isna(), 'VehFuel']
+
+
+# In[298]:
+
+
+traindf['VehFuel'].value_counts()
+
+
+# ---
+# # VehHistory
+# 
+# string split this over number of previous owners, as well as other features to track. Looks regulated (not manually entered)
+
+# In[305]:
+
+
+traindf['VehHistory'].head(10)
+
+
+# ---
+# # VehListdays
+
+# In[318]:
+
+
+#look at distribution of listed days
+traindf['VehListdays'].hist(bins = 50, log = False)
+plt.title('List days histogram ');
+plt.xlabel('days listed')
+plt.ylabel('count');
+plt.show()
+
+traindf['VehListdays'].hist(bins = 50, log = True)
+plt.title('List days histogram (log)');
+plt.xlabel('days listed')
+plt.ylabel('count');
+plt.show()
+
+
+# In[322]:
+
+
+#look at listed days with price. high price ones may go faster.
+plt.scatter(traindf['VehListdays'], traindf['Dealer_Listing_Price'])
+plt.xlabel('listed days')
+plt.ylabel('listing price')
+
+
+# ---
+# # VehMake
+# 
+# Only Jeeps and Cadillacs. None missing. About twice as many Jeeps.
+
+# In[326]:
+
+
+makevcs = traindf['VehMake'].value_counts()
+makevcs
+
+
+# ---
+# # VehMileage
+# 
+# What happens after 50,000 miles? Something special? There is a big dropoff in listings there.
+# 
+# The prices for the long-milage ones do not sink as low as the lowest pre-50k ones. These must be cars with something extra special.
+# 
+
+# In[332]:
+
+
+traindf['VehMileage'].hist(bins = 30)
+plt.title('Mileage histogram')
+plt.xlabel("miles driven")
+plt.ylabel('count')
+
+
+# In[333]:
+
+
+#mileage with price
+plt.scatter(traindf['VehMileage'], traindf['Dealer_Listing_Price'])
+
+
+# In[339]:
+
+
+#cars with milage >50k are all cadillacs.
+traindf.loc[traindf['VehMileage'] > 50000].head(40)
+
+
+# ---
+# # VehModel
+# 
+# All cars are either Jeep Grand Cherokee or Cadillac XT5s.
+
+# In[340]:
+
+
+traindf['VehModel'].value_counts()
+
+
+# ---
+# # VehPriceLabel
+# 
+# Many of these are missing. Missing ones may all be the same, probably a "bad deal".
+
+# In[344]:
+
+
+traindf['VehPriceLabel'].value_counts()
+
+
+# In[361]:
+
+
+traindf['Dealer_Listing_Price'].hist(density = True)
+traindf[traindf['VehPriceLabel'].isna()]['Dealer_Listing_Price'].hist(density = True)
+
+
+# In[351]:
+
+
+
+
+
+# ---
+# # VehSellerNotes
+# 
+# This will be tough to parse, as it's seller specific and manually entered. Much of this information is likely copied in other features (history, feats, colors,...).
+# It may be valuable to look through some to see if there is any unusual words to grab onto.
+
+# In[368]:
+
+
+traindf['VehSellerNotes']
+
+
+# In[367]:
+
+
+traindf['VehSellerNotes'][4]
+
+
+# ---
+# # VehType
+# 
+# Useless. They're all used cars.
+
+# In[370]:
+
+
+traindf['VehType'].value_counts()
+
+
+# ---
+# # VehTransmission
+# 
+# It looks like most of these are like drivetrain --- manually entered, with a lot of overlap due to typos and other ways of writing. These can be reduced to a smaller number of transmissions.
+
+# In[371]:
+
+
+traindf['VehTransmission'].value_counts()
+
+
+# ---
+# # VehYear
+# 
+# Straightforward model year. This could be turned into dummies (each model is different). It is not the year it was manufactured, so it cannot be turned into a vehicle age. Mileage is perhaps a better estimator of effective age as it relates to value.
+
+# In[372]:
+
+
+traindf['VehYear'].value_counts()
+
+
+# ---
+# # Vehicle_Trim
+# 
+# there are a lot of vehicle trims. Some of these seem to overlap. For the sake of this problem, I will treat these as different classes, so the test predictions match the training data. However, in a "real situation", I'd investigate to see which of these are the same, and reduce the number of classes. 
+
+# In[374]:
+
+
+traindf['Vehicle_Trim'].value_counts()
+
+
+# ---
+# # Dealer_Listing_Price
+# 
+# the target. people don't like selling around \$30k?
+
+# In[392]:
+
+
+traindf['Dealer_Listing_Price'].hist(bins = np.linspace(15000,100000,86));
+plt.title("dealer listing price histogram")
+plt.xlabel("listing price (USD)")
+plt.ylabel('count');
+
+
+# ---
+
+# In[398]:
+
+
+correlation_features = ['SellerIsPriv', 'SellerRating', 'SellerRevCnt','VehCertified','VehListdays','VehMileage','VehYear','Dealer_Listing_Price']
+corr = traindf[correlation_features].corr()
+plt.figure(figsize = (12,12))
+sns.heatmap(corr, annot=True)
+\end{verbatim}

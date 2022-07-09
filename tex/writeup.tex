@@ -1,0 +1,23 @@
+\documentclass{amsart}
+\usepackage{hyperref, verbatim}
+\begin{document}
+	
+	\large 
+	\noindent Data Science Challenge Problem --- 2021 --- Boeing Global Services\\
+	
+	\noindent David Tersegno\\
+	dtersegno@gmail.com\\
+	\href{https://github.com/dtersegno}{Github}\\
+	315 515 9983
+	
+	\subsection*{Data preparation} Numeric data was largely left as-is. Some that was not considered useful, like zip codes, or Vehicle Make (redundant with the models) was removed. Textual or list-like data describing car attributes was converted to over 200 dummy features.
+	
+	\subsection*{Predicting dealer list price} The data converted in the previous step was fed into a linear model. This model was then applied to the test set. The result was a fit with $R^2 \approx 0.8$.
+	
+	\subsection*{Predicting vehicle trim} The 29 listed trims were encoded as a 29-d vector. Data was duplicated to balance trim classes, and fed into a keras sequential model with a hidden layer. This model only achieved about 12\% accuracy with the balanced classes, but this is better than random choices of $1/29 \approx 0.03$. This is worse than simply assuming all models are Limited, which would give about 30\% accuracy assuming the frequency of Limited vehicles is about the same as in the data.
+	\subsection*{source code} The sources are included here. However, they are in the form of ipython notebooks, so is inconvenient. \href{https://github.com/dtersegno/boeingds}{Please check my Github for the boeingds project repository to view more easily.}\\
+	
+	\input{1_EDA.tex}
+	\input{2_processing.tex}
+	\input{3_model.tex}
+\end{document}

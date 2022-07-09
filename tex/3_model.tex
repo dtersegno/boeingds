@@ -1,0 +1,346 @@
+\begin{verbatim}
+#!/usr/bin/env python
+# coding: utf-8
+
+# model
+# ---
+# 
+# This notebook creates a linear regression model from the training data and applies it to the test data.
+
+# In[46]:
+
+
+#import libraries
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import cross_val_score#, train_test_split
+
+
+# In[47]:
+
+
+train_data_path = '../data/train_processed.csv'
+test_data_path = '../data/test_processed.csv'
+
+traindf = pd.read_csv(train_data_path)
+testdf = pd.read_csv(test_data_path)
+traindf.info()
+
+
+# In[61]:
+
+
+testdf.info()
+
+
+# In[48]:
+
+
+#just to double-check, the training and testing data columns are the same.
+
+traincols = traindf.columns.to_list()
+traincols.remove('Dealer_Listing_Price')
+
+traincols == testdf.columns.to_list()
+
+
+# # predicting dealer listing price
+
+# In[49]:
+
+
+###### train-test split the training data to check
+X = traindf.drop(columns = 'Dealer_Listing_Price')
+y = traindf['Dealer_Listing_Price']
+
+# actually, no need to tts. Just use cross_val_score. The linear fit is the same.
+# Xtrain, Xtest, ytrain, ytest = train_test_split(X, y, random_state = 1916)
+
+
+# In[50]:
+
+
+#instantiate and fit a linear model to the training data using 5 cv folds
+
+lr = LinearRegression()
+cross_val_score(lr, X, y, cv = 5)
+
+
+# In[51]:
+
+
+# the fit is O.K. Use the linear regression on the test set and save.
+
+
+# In[52]:
+
+
+lr.fit(X, y)
+preds = lr.predict(testdf)
+
+
+# In[56]:
+
+
+#the mean and std of the predicted values for the test set are similar to the dealer listing prices in the training set.
+preds.mean(), preds.std(), y.mean(), y.std()
+
+
+# In[58]:
+
+
+# look at some predictions
+testdf['Dealer_Listing_Price'] = preds
+testdf['Dealer_Listing_Price']
+
+
+# In[59]:
+
+
+testdf
+
+
+# # predicting trim
+
+# In[98]:
+
+
+#imports
+from keras.layers import Dense
+from keras.models import Sequential
+
+
+# In[66]:
+
+
+#load the trim data
+trimdata = pd.read_csv('../data/train_trim_data.csv', index_col='Unnamed: 0')
+trimdata.head()
+
+
+# In[67]:
+
+
+#slap the trim back on
+traindf = traindf.join(trimdata)
+
+
+# In[71]:
+
+
+#remove nulls. A lot of the trims are missing.
+traindf.dropna(inplace=True)
+
+
+# In[78]:
+
+
+# #get unique trims
+# trims = list(traindf['Vehicle_Trim'].unique())
+
+
+# In[133]:
+
+
+# trims.index('Limited')
+
+
+# In[135]:
+
+
+# #turn trim strings into a vector and vice versa.
+
+# def encode_trim(some_trim_string, unique_trim_list):
+#     encoded_trim_vector = np.full(len(unique_trim_list), 0)
+#     trim_index = list(unique_trim_list).index(some_trim_string)
+#     encoded_trim_vector[trim_index] = 1
+#     return encoded_trim_vector
+
+# def decode_trim(trim_vector, unique_trim_list):
+#     trim_index = list(trim_vector).index(1)
+#     decoded_trim_string = unique_trim_list[trim_index]
+#     return decoded_trim_string
+
+
+# In[134]:
+
+
+# #test them out
+# test_decode = np.full(len(trims), 0)
+# test_decode[5] = 1
+
+# test_encode = decode_trim(test_decode, trims)
+# test_encode
+
+
+# In[194]:
+
+
+#encode_trim(test_encode, trims)
+
+
+# In[137]:
+
+
+#turn all training trims into vectors
+
+train_trims = pd.get_dummies(traindf['Vehicle_Trim'])
+
+
+# In[150]:
+
+
+trims = train_trims.columns
+
+
+# In[208]:
+
+
+traindf[traindf['Vehicle_Trim'] == 'Limited']
+
+
+# In[211]:
+
+
+get_ipython().run_cell_magic('time', '', "\n#duplicate data with underrepresented classes\nnewdf = pd.DataFrame([], columns = traindf.columns)\n\nfor vehicle_trim_class in traindf['Vehicle_Trim'].value_counts().index:\n    print(vehicle_trim_class)\n    keep_going = True\n    while keep_going:\n        newdf = pd.concat([newdf, traindf[traindf['Vehicle_Trim'] == vehicle_trim_class]])\n        if len(newdf[newdf['Vehicle_Trim'] == vehicle_trim_class]) > 600:\n            keep_going = False\n    ")
+
+
+# In[213]:
+
+
+len(newdf)
+
+
+# In[250]:
+
+
+num_inputs = len(newdf.columns)
+num_outputs = len(trims)
+
+#create a model
+model = Sequential()
+model.add(Dense(num_inputs, activation='relu'))
+model.add(Dense(num_outputs*2, activation='relu'))
+model.add(Dense(num_outputs, activation = 'softmax'))
+
+model.compile(optimizer = 'adam', loss='categorical_crossentropy', metrics = ['accuracy'])
+
+
+# In[251]:
+
+
+#train it!
+
+X = newdf.drop(columns = ['Dealer_Listing_Price','Vehicle_Trim'])
+y = pd.DataFrame(newdf['Vehicle_Trim'].apply(lambda this_trim: encode_trim(this_trim,trims)).to_list())
+
+
+# In[252]:
+
+
+y
+
+
+# In[255]:
+
+
+get_ipython().run_cell_magic('time', '', 'epochs = 5120\nbatch_size = 256\nhistory = model.fit(\n    X,\n    y,\n    batch_size = batch_size,\n    epochs=epochs,\n    validation_split = 0.2,\n    verbose = False\n)')
+
+
+# In[256]:
+
+
+acc_hist, val_acc_hist = history.history['accuracy'], history.history['val_accuracy']
+
+num_epochs_passed = len(acc_hist)
+xes = np.linspace(0,num_epochs_passed,num_epochs_passed)
+plt.plot(xes, acc_hist)
+plt.plot(xes,val_acc_hist)
+
+
+# In[257]:
+
+
+#this is not good at all. Just train it on the unbalanced data.
+
+
+# In[258]:
+
+
+num_inputs = len(traindf.columns) - 2
+num_outputs = len(trims)
+
+#create a model
+model = Sequential()
+model.add(Dense(num_inputs, activation='relu'))
+model.add(Dense(num_outputs*2, activation='relu'))
+model.add(Dense(num_outputs, activation = 'softmax'))
+
+model.compile(optimizer = 'adam', loss='categorical_crossentropy', metrics = ['accuracy'])
+
+
+# In[259]:
+
+
+#train it!
+
+X = traindf.drop(columns = ['Dealer_Listing_Price','Vehicle_Trim'])
+y = pd.DataFrame(traindf['Vehicle_Trim'].apply(lambda this_trim: encode_trim(this_trim,trims)).to_list())
+
+
+# In[261]:
+
+
+get_ipython().run_cell_magic('time', '', 'epochs = 512\nbatch_size = 256\nhistory = model.fit(\n    X,\n    y,\n    batch_size = batch_size,\n    epochs=epochs,\n    validation_split = 0.2,\n    verbose = False\n)')
+
+
+# In[266]:
+
+
+acc_hist, val_acc_hist = history.history['accuracy'], history.history['val_accuracy']
+
+num_epochs_passed = len(acc_hist)
+xes = np.linspace(0,num_epochs_passed,num_epochs_passed)
+plt.plot(xes, acc_hist)
+plt.plot(xes,val_acc_hist)
+
+
+# In[272]:
+
+
+model_preds = pd.Series([
+trims[np.argmax(prediction)]
+for prediction in model.predict(testdf.drop(columns = 'Dealer_Listing_Price'))
+])
+
+
+# In[273]:
+
+
+model_preds.value_counts()
+
+
+# In[280]:
+
+
+predictions = pd.DataFrame(zip(preds, model_preds), columns = ['Dealer_List_Price', 'Vehicle_Trim'])
+predictions.head()
+
+
+# In[281]:
+
+
+#save predictions
+predictions.to_csv('../predictions.csv')
+
+
+# In[ ]:
+
+
+
+
+
+\end{verbatim}
